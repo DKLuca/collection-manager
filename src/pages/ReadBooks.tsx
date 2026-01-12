@@ -3,16 +3,15 @@ import { supabase } from '@/lib/supabaseClient';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Search, ArrowUpDown, ChevronUp, ChevronDown, Plus, X, Trash2, Hash, Star, BookOpen, StickyNote } from 'lucide-react';
+import { Search, ArrowUpDown, ChevronUp, ChevronDown, Plus, X, Trash2, Hash, Star, BookOpen, StickyNote, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-// TIPO DATI LIBRO LETTO
 type ReadBook = {
   id: number;
   title: string;
   author: string;
-  read_year: number; // Su Supabase la colonna è 'read_year'
+  read_year: number;
   pages: number;
   rating: number;
   notes: string;
@@ -26,6 +25,7 @@ type SortConfig = {
 export default function ReadBooks() {
   const [books, setBooks] = useState<ReadBook[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   
   const [newItem, setNewItem] = useState({
     id: 0,
@@ -40,21 +40,17 @@ export default function ReadBooks() {
   const [search, setSearch] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
 
-  // 1. Caricamento
   useEffect(() => {
     const fetchBooks = async () => {
-      const { data, error } = await supabase
-        .from('read_books')
-        .select('*');
-      
+      const { data, error } = await supabase.from('read_books').select('*');
       if (error) console.error("Errore download:", error);
       else if (data) setBooks(data);
     };
     fetchBooks();
   }, []);
 
-  // 2. ID Sequenziale
   const openNewReadBookModal = () => {
+    setEditingId(null);
     let nextId = 1; 
     if (books.length > 0) {
       const currentIds = books.map(b => b.id);
@@ -74,12 +70,24 @@ export default function ReadBooks() {
     setIsModalOpen(true);
   };
 
-  // 3. Salvataggio
+  const openEditModal = (book: ReadBook) => {
+    setEditingId(book.id);
+    setNewItem({
+        id: book.id,
+        author: book.author,
+        title: book.title,
+        read_year: book.read_year ? book.read_year.toString() : '',
+        pages: book.pages ? book.pages.toString() : '',
+        rating: book.rating ? book.rating.toString() : '',
+        notes: book.notes || ''
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newBookPayload = {
-        id: newItem.id,
+    const payload = {
         title: newItem.title,
         author: newItem.author,
         read_year: parseInt(newItem.read_year) || null,
@@ -88,43 +96,38 @@ export default function ReadBooks() {
         notes: newItem.notes
     };
 
-    const { data, error } = await supabase
-        .from('read_books')
-        .insert([newBookPayload])
-        .select();
-
-    if (error) {
-        console.error("Errore salvataggio:", error);
-        alert("Errore: " + error.message);
-    } else if (data) {
-        setBooks([...books, data[0]]);
-        setIsModalOpen(false);
+    if (editingId) {
+        // UPDATE
+        const { data, error } = await supabase.from('read_books').update(payload).eq('id', editingId).select();
+        if (error) alert(error.message);
+        else if (data) {
+            setBooks(books.map(b => b.id === editingId ? data[0] : b));
+            setIsModalOpen(false);
+            setEditingId(null);
+        }
+    } else {
+        // INSERT
+        const insertPayload = { ...payload, id: newItem.id };
+        const { data, error } = await supabase.from('read_books').insert([insertPayload]).select();
+        if (error) alert(error.message);
+        else if (data) {
+            setBooks([...books, data[0]]);
+            setIsModalOpen(false);
+        }
     }
   };
 
-  // 4. Eliminazione
   const handleDelete = async (idToDelete: number) => {
     if (!confirm("Vuoi rimuovere questo libro dallo storico?")) return;
-
-    const { error } = await supabase
-        .from('read_books')
-        .delete()
-        .eq('id', idToDelete);
-
-    if (!error) {
-        setBooks(books.filter(b => b.id !== idToDelete));
-    }
+    const { error } = await supabase.from('read_books').delete().eq('id', idToDelete);
+    if (!error) setBooks(books.filter(b => b.id !== idToDelete));
   };
 
-  // Calcolo Pagine totali (per l'header)
   const pagineTotali = books.reduce((acc, b) => acc + (b.pages || 0), 0);
 
-  // Ordinamento
   const handleSort = (key: keyof ReadBook) => {
     let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
   };
 
@@ -133,7 +136,6 @@ export default function ReadBooks() {
       b.author.toLowerCase().includes(search.toLowerCase()) || 
       b.title.toLowerCase().includes(search.toLowerCase())
     );
-
     if (sortConfig.key) {
       items.sort((a, b) => {
         // @ts-ignore
@@ -156,13 +158,11 @@ export default function ReadBooks() {
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 relative">
-      
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-amber-950 dark:text-amber-100">Libri Letti</h1>
           <p className="text-slate-500">Lo storico delle tue letture.</p>
         </div>
-        
         <div className="flex gap-3">
             <div className="bg-amber-500 text-white px-6 py-3 rounded-2xl shadow-lg shadow-amber-200 dark:shadow-none flex items-center gap-4">
                 <div className="p-2 bg-white/20 rounded-lg">
@@ -173,7 +173,6 @@ export default function ReadBooks() {
                     <p className="text-2xl font-bold">{pagineTotali}</p>
                 </div>
             </div>
-            
             <Button onClick={openNewReadBookModal} size="lg" className="rounded-2xl gap-2 shadow-lg bg-slate-900 text-white hover:bg-slate-800">
                 <Plus size={20} />
                 <span className="hidden md:inline">Registra Lettura</span>
@@ -185,12 +184,7 @@ export default function ReadBooks() {
         <CardHeader className="bg-slate-50/50 dark:bg-slate-800/50 flex flex-row items-center gap-4 py-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input 
-              placeholder="Cerca per autore o titolo..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 bg-white dark:bg-slate-900 border-none shadow-sm focus-visible:ring-amber-500"
-            />
+            <Input placeholder="Cerca per autore o titolo..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 bg-white dark:bg-slate-900 border-none shadow-sm focus-visible:ring-amber-500"/>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -204,7 +198,7 @@ export default function ReadBooks() {
                   <TableHead className="text-center"><Button variant="ghost" onClick={() => handleSort('pages')} className="p-0 font-bold hover:bg-transparent mx-auto">Pagine <SortIcon column="pages" /></Button></TableHead>
                   <TableHead className="text-center"><Button variant="ghost" onClick={() => handleSort('rating')} className="p-0 font-bold hover:bg-transparent mx-auto">Voto <SortIcon column="rating" /></Button></TableHead>
                   <TableHead>Note</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -213,13 +207,9 @@ export default function ReadBooks() {
                     <TableCell className="font-medium text-slate-700 dark:text-slate-300">{book.author}</TableCell>
                     <TableCell className="text-slate-900 dark:text-slate-100 font-semibold">{book.title}</TableCell>
                     <TableCell className="text-center">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
-                            {book.read_year}
-                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">{book.read_year}</span>
                     </TableCell>
                     <TableCell className="text-center text-slate-600 dark:text-slate-400">{book.pages}</TableCell>
-                    
-                    {/* Visualizzazione Voto */}
                     <TableCell className="text-center">
                         {book.rating > 0 && (
                             <div className="inline-flex items-center gap-1 bg-yellow-50 text-yellow-700 px-2 py-0.5 rounded-full text-xs font-bold border border-yellow-100 mx-auto">
@@ -228,15 +218,16 @@ export default function ReadBooks() {
                             </div>
                         )}
                     </TableCell>
-
-                    <TableCell className="max-w-[200px] truncate text-slate-500 text-sm italic">
-                        {book.notes}
-                    </TableCell>
-
-                    <TableCell>
-                        <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(book.id)}>
-                            <Trash2 size={16} />
-                        </Button>
+                    <TableCell className="max-w-[200px] truncate text-slate-500 text-sm italic">{book.notes}</TableCell>
+                    <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" onClick={() => openEditModal(book)}>
+                                <Pencil size={16} />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20" onClick={() => handleDelete(book.id)}>
+                                <Trash2 size={16} />
+                            </Button>
+                        </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -246,35 +237,30 @@ export default function ReadBooks() {
         </CardContent>
       </Card>
 
-      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
                 <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-slate-800">
-                    <h2 className="text-xl font-bold">Registra Lettura</h2>
+                    <h2 className="text-xl font-bold">{editingId ? "Modifica Lettura" : "Registra Lettura"}</h2>
                     <Button variant="ghost" size="icon" onClick={() => setIsModalOpen(false)}>
                         <X className="h-5 w-5" />
                     </Button>
                 </div>
-
                 <form onSubmit={handleSave} className="p-6 space-y-4">
                     <div className="space-y-2">
                         <Label htmlFor="id" className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                            <Hash className="h-3 w-3" /> ID Sequenziale
+                            <Hash className="h-3 w-3" /> ID {editingId ? "(Non modificabile)" : "Sequenziale"}
                         </Label>
                         <Input id="id" value={newItem.id} disabled className="bg-slate-100 text-slate-500 font-mono font-bold"/>
                     </div>
-
                     <div className="space-y-2">
                         <Label>Autore</Label>
                         <Input required value={newItem.author} onChange={e => setNewItem({...newItem, author: e.target.value})} />
                     </div>
-                    
                     <div className="space-y-2">
                         <Label>Titolo</Label>
                         <Input required value={newItem.title} onChange={e => setNewItem({...newItem, title: e.target.value})} />
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label>Anno Lettura</Label>
@@ -285,22 +271,19 @@ export default function ReadBooks() {
                             <Input type="number" required value={newItem.pages} onChange={e => setNewItem({...newItem, pages: e.target.value})} />
                         </div>
                     </div>
-
                     <div className="space-y-2">
                         <Label>Voto (1-10)</Label>
                         <Input type="number" min="1" max="10" value={newItem.rating} onChange={e => setNewItem({...newItem, rating: e.target.value})} />
                     </div>
-
                     <div className="space-y-2">
                         <Label className="flex items-center gap-2">
                             <StickyNote className="h-3 w-3" /> Note personali
                         </Label>
                         <Input value={newItem.notes} onChange={e => setNewItem({...newItem, notes: e.target.value})} placeholder="Opinioni, voto..." />
                     </div>
-
                     <div className="flex gap-3 pt-4">
                         <Button type="button" variant="outline" className="flex-1" onClick={() => setIsModalOpen(false)}>Annulla</Button>
-                        <Button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700 text-white">Salva</Button>
+                        <Button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700 text-white">Conferma</Button>
                     </div>
                 </form>
             </div>

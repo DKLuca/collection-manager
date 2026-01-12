@@ -3,11 +3,10 @@ import { supabase } from '@/lib/supabaseClient';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Search, MapPin, ArrowUpDown, ChevronUp, ChevronDown, Plus, X, Trash2, Hash, Music, Disc } from 'lucide-react';
+import { Search, MapPin, ArrowUpDown, ChevronUp, ChevronDown, Plus, X, Trash2, Hash, Music, Pencil } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-// TIPO DATI CD
 type CD = {
   id: number;
   title: string;
@@ -25,6 +24,7 @@ type SortConfig = {
 export default function CDs() {
   const [cds, setCds] = useState<CD[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
   
   const [newItem, setNewItem] = useState({
     id: 0,
@@ -38,21 +38,17 @@ export default function CDs() {
   const [search, setSearch] = useState('');
   const [sortConfig, setSortConfig] = useState<SortConfig>({ key: null, direction: 'asc' });
 
-  // 1. Caricamento da Supabase
   useEffect(() => {
     const fetchCDs = async () => {
-      const { data, error } = await supabase
-        .from('cds')
-        .select('*');
-      
+      const { data, error } = await supabase.from('cds').select('*');
       if (error) console.error("Errore download:", error);
       else if (data) setCds(data);
     };
     fetchCDs();
   }, []);
 
-  // 2. ID Sequenziale
   const openNewCDModal = () => {
+    setEditingId(null);
     let nextId = 1; 
     if (cds.length > 0) {
       const currentIds = cds.map(cd => cd.id);
@@ -71,12 +67,23 @@ export default function CDs() {
     setIsModalOpen(true);
   };
 
-  // 3. Salvataggio
+  const openEditModal = (cd: CD) => {
+    setEditingId(cd.id);
+    setNewItem({
+        id: cd.id,
+        artist: cd.artist,
+        title: cd.title,
+        year: cd.year ? cd.year.toString() : '',
+        location: cd.location || '',
+        cost: cd.cost.toString()
+    });
+    setIsModalOpen(true);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newCDPayload = {
-        id: newItem.id,
+    const payload = {
         title: newItem.title,
         artist: newItem.artist,
         location: newItem.location,
@@ -84,40 +91,36 @@ export default function CDs() {
         cost: parseFloat(newItem.cost) || 0
     };
 
-    const { data, error } = await supabase
-        .from('cds')
-        .insert([newCDPayload])
-        .select();
-
-    if (error) {
-        console.error("Errore salvataggio:", error);
-        alert("Errore: " + error.message);
-    } else if (data) {
-        setCds([...cds, data[0]]);
-        setIsModalOpen(false);
+    if (editingId) {
+        // UPDATE
+        const { data, error } = await supabase.from('cds').update(payload).eq('id', editingId).select();
+        if (error) alert(error.message);
+        else if (data) {
+            setCds(cds.map(c => c.id === editingId ? data[0] : c));
+            setIsModalOpen(false);
+            setEditingId(null);
+        }
+    } else {
+        // INSERT
+        const insertPayload = { ...payload, id: newItem.id };
+        const { data, error } = await supabase.from('cds').insert([insertPayload]).select();
+        if (error) alert(error.message);
+        else if (data) {
+            setCds([...cds, data[0]]);
+            setIsModalOpen(false);
+        }
     }
   };
 
-  // 4. Eliminazione
   const handleDelete = async (idToDelete: number) => {
     if (!confirm("Vuoi eliminare questo CD?")) return;
-
-    const { error } = await supabase
-        .from('cds')
-        .delete()
-        .eq('id', idToDelete);
-
-    if (!error) {
-        setCds(cds.filter(c => c.id !== idToDelete));
-    }
+    const { error } = await supabase.from('cds').delete().eq('id', idToDelete);
+    if (!error) setCds(cds.filter(c => c.id !== idToDelete));
   };
 
-  // Ordinamento e Filtro
   const handleSort = (key: keyof CD) => {
     let direction: 'asc' | 'desc' = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
   };
 
@@ -126,7 +129,6 @@ export default function CDs() {
       c.artist.toLowerCase().includes(search.toLowerCase()) || 
       c.title.toLowerCase().includes(search.toLowerCase())
     );
-
     if (sortConfig.key) {
       items.sort((a, b) => {
         // @ts-ignore
@@ -143,7 +145,6 @@ export default function CDs() {
   }, [cds, search, sortConfig]);
 
   const totalValue = sortedAndFiltered.reduce((acc, c) => acc + (c.cost || 0), 0);
-
   const SortIcon = ({ column }: { column: any }) => {
     if (sortConfig.key !== column) return <ArrowUpDown className="ml-2 h-4 w-4 opacity-50" />;
     return sortConfig.direction === 'asc' ? <ChevronUp className="ml-2 h-4 w-4" /> : <ChevronDown className="ml-2 h-4 w-4" />;
@@ -151,13 +152,11 @@ export default function CDs() {
 
   return (
     <div className="container mx-auto p-4 md:p-8 space-y-6 relative">
-      
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-pink-950 dark:text-pink-100">Collezione CD</h1>
           <p className="text-slate-500">I tuoi Compact Disc.</p>
         </div>
-        
         <div className="flex gap-3">
             <div className="bg-pink-600 text-white px-6 py-3 rounded-2xl shadow-lg shadow-pink-200 dark:shadow-none flex items-center gap-4">
                 <div className="text-sm opacity-80 uppercase tracking-wider font-semibold hidden md:block">Valore</div>
@@ -174,12 +173,7 @@ export default function CDs() {
         <CardHeader className="bg-slate-50/50 dark:bg-slate-800/50 flex flex-row items-center gap-4 py-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <Input 
-              placeholder="Cerca per artista o album..." 
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-10 bg-white dark:bg-slate-900 border-none shadow-sm focus-visible:ring-pink-500"
-            />
+            <Input placeholder="Cerca per artista o album..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-10 bg-white dark:bg-slate-900 border-none shadow-sm focus-visible:ring-pink-500"/>
           </div>
         </CardHeader>
         <CardContent className="p-0">
@@ -192,7 +186,7 @@ export default function CDs() {
                   <TableHead className="text-center"><Button variant="ghost" onClick={() => handleSort('year')} className="p-0 font-bold hover:bg-transparent mx-auto">Anno <SortIcon column="year" /></Button></TableHead>
                   <TableHead className="text-center"><Button variant="ghost" onClick={() => handleSort('location')} className="p-0 font-bold hover:bg-transparent mx-auto">Posizione <SortIcon column="location" /></Button></TableHead>
                   <TableHead className="text-right">Costo</TableHead>
-                  <TableHead className="w-[50px]"></TableHead>
+                  <TableHead className="w-[100px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -211,10 +205,15 @@ export default function CDs() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right font-bold text-pink-600 dark:text-pink-400">{cd.cost.toFixed(2)}€</TableCell>
-                    <TableCell>
-                        <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(cd.id)}>
-                            <Trash2 size={16} />
-                        </Button>
+                    <TableCell className="text-right">
+                        <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20" onClick={() => openEditModal(cd)}>
+                                <Pencil size={16} />
+                            </Button>
+                            <Button variant="ghost" size="icon" className="text-slate-400 hover:text-red-600 hover:bg-red-50" onClick={() => handleDelete(cd.id)}>
+                                <Trash2 size={16} />
+                            </Button>
+                        </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -224,12 +223,11 @@ export default function CDs() {
         </CardContent>
       </Card>
 
-      {/* MODAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-in fade-in duration-200">
             <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200 dark:border-slate-800">
                 <div className="flex justify-between items-center p-6 border-b border-slate-100 dark:border-slate-800">
-                    <h2 className="text-xl font-bold">Nuovo CD</h2>
+                    <h2 className="text-xl font-bold">{editingId ? "Modifica CD" : "Nuovo CD"}</h2>
                     <Button variant="ghost" size="icon" onClick={() => setIsModalOpen(false)}>
                         <X className="h-5 w-5" />
                     </Button>
@@ -237,11 +235,10 @@ export default function CDs() {
                 <form onSubmit={handleSave} className="p-6 space-y-4">
                     <div className="space-y-2">
                         <Label htmlFor="id" className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-500 font-semibold">
-                            <Hash className="h-3 w-3" /> ID Sequenziale
+                            <Hash className="h-3 w-3" /> ID {editingId ? "(Non modificabile)" : "Sequenziale"}
                         </Label>
                         <Input id="id" value={newItem.id} disabled className="bg-slate-100 text-slate-500 font-mono font-bold"/>
                     </div>
-
                     <div className="space-y-2">
                         <Label>Artista</Label>
                         <Input required placeholder="Es. Queen" value={newItem.artist} onChange={(e) => setNewItem({...newItem, artist: e.target.value})} />
@@ -250,7 +247,6 @@ export default function CDs() {
                         <Label>Titolo Album</Label>
                         <Input required placeholder="Es. Greatest Hits" value={newItem.title} onChange={(e) => setNewItem({...newItem, title: e.target.value})} />
                     </div>
-
                     <div className="grid grid-cols-2 gap-4">
                         <div className="space-y-2">
                             <Label>Anno</Label>
@@ -261,15 +257,13 @@ export default function CDs() {
                             <Input placeholder="Scaffale C" value={newItem.location} onChange={(e) => setNewItem({...newItem, location: e.target.value})} />
                         </div>
                     </div>
-
                     <div className="space-y-2">
                         <Label>Costo (€)</Label>
                         <Input type="number" step="0.01" placeholder="0.00" value={newItem.cost} onChange={(e) => setNewItem({...newItem, cost: e.target.value})} />
                     </div>
-
                     <div className="flex gap-3 pt-4 mt-2">
                         <Button type="button" variant="outline" className="flex-1" onClick={() => setIsModalOpen(false)}>Annulla</Button>
-                        <Button type="submit" className="flex-1 bg-pink-600 hover:bg-pink-700 text-white">Salva</Button>
+                        <Button type="submit" className="flex-1 bg-pink-600 hover:bg-pink-700 text-white">Conferma</Button>
                     </div>
                 </form>
             </div>
